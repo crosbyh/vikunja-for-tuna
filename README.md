@@ -6,13 +6,20 @@ and mark them done without leaving the launcher.
 
 Requires Tuna 0.96 or later (TunaKit 1.22.0) and macOS 15.
 
+| | |
+| --- | --- |
+| ![Open tasks sorted by due date](media/screenshots/01-browse.png) | ![Tasks inside the Work project](media/screenshots/02-project.png) |
+| ![Live search](media/screenshots/03-search.png) | ![Mark Done action](media/screenshots/04-actions.png) |
+
+![Quick capture with New Vikunja Task](media/screenshots/05-quick-add.png)
+
 ## What it adds
 
 **Sources (Settings → Sources → Vikunja)**
 
 | Catalog | ID | What it does |
 | --- | --- | --- |
-| Vikunja | `vikunja` | Live-search root. Type to search open tasks server-side (title and description); browse to see them grouped as Overdue, Today, Next 7 Days, Later, and No Due Date, plus a By Project group that drills into each project. Also holds the **New Vikunja Task** quick-capture entry. |
+| Vikunja | `vikunja` | Live-search root. Press → for every open task sorted by due date, or type to search server-side (title and description). Its Browse view groups tasks as Overdue, Today, Next 7 Days, Later, and No Due Date, plus a By Project group that drills into each project. Also holds the **New Vikunja Task** quick-capture entry. |
 | Projects | `vikunja.projects` | Every non-archived project. Browse into a project to see its sub-projects and open tasks. Projects are also the targets for “Add to Vikunja Project”. Enable global scope for this source if you want project names in root search. |
 
 **Actions (`vikunja.actions`)**
@@ -64,7 +71,9 @@ make logs             # last 20 minutes of Tuna extension logs
 make package          # Release build + dist/store/*.tunaextension
 ```
 
-Or call `./scripts/tuna-extension <build|test|install|logs|package>` directly. The scripts
+Or call `./scripts/tuna-extension <build|test|install|logs|package>` directly.
+`./scripts/screenshot-tuna NAME [DELAY]` captures Tuna's launcher window by ID (no focus
+change) into `media/screenshots/NAME.png` after a delay, so you can summon Tuna first. The scripts
 are adapted from [tunaformac/TunaExtensions](https://github.com/tunaformac/TunaExtensions)
 (MIT, see `scripts/LICENSE-TunaExtensions`). Building needs Xcode 16+, `rg`, and network
 access for the TunaKit binary package. For non-interactive signing pass

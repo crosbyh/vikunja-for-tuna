@@ -4,11 +4,17 @@ import TunaKit
 /// Source catalog of Vikunja projects. Projects are indexed (so they can be action targets and,
 /// if the user enables global scope, searched directly) and browsable into their open tasks.
 public final class VikunjaProjectsCatalog: Catalog, RescanSchedulingCatalog,
-  StartupScanningCatalog, RetainedCatalogStateReleasing
+  StartupScanningCatalog, RetainedCatalogStateReleasing,
+  CatalogSortingProviding, CatalogResultsSortModeProviding
 {
   public let identifier: String
   public let name: String
   public let scansOnStartup = false
+  public var sortOptions: [CatalogSortOption] { VikunjaSort.options }
+  public var defaultSortOptionID: String { VikunjaSort.dueOptionID }
+  public func resultsSortMode(forSortOptionID sortOptionID: String) -> ResultsSortMode? {
+    sortOptionID == VikunjaSort.dueOptionID ? .time : nil
+  }
   public var rescanHandler: (() -> Void)?
 
   private let projectsStore = LockedValue<[VikunjaProjectItem]>([])

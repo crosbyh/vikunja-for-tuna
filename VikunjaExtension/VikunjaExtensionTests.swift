@@ -270,3 +270,54 @@ final class VikunjaExtensionTests: XCTestCase {
       detail: "Inbox")
   }
 }
+
+@MainActor
+final class VikunjaSortTests: XCTestCase {
+  func testDueSortPutsSectionsFirstThenTasksByDueThenOthers() {
+    let now = Date()
+    let later = VikunjaSectionItem(
+      title: "Later", id: "s.later", detail: nil, symbolName: "clock", iconColor: .gray,
+      children: [], sortOrder: 3)
+    let overdue = VikunjaSectionItem(
+      title: "Overdue", id: "s.overdue", detail: nil, symbolName: "exclamationmark.circle",
+      iconColor: .red, children: [], sortOrder: 0)
+    let soon = VikunjaTaskItem(
+      task: VikunjaTask(
+        id: 1, title: "z soon", description: "", done: false, dueDate: now, priority: 0,
+        projectID: 1, identifier: "", labels: [], updatedAt: nil),
+      connectionID: "c", projectTitle: nil, url: URL(string: "https://v/tasks/1")!, detail: "")
+    let undated = VikunjaTaskItem(
+      task: VikunjaTask(
+        id: 2, title: "a undated", description: "", done: false, dueDate: nil, priority: 0,
+        projectID: 1, identifier: "", labels: [], updatedAt: nil),
+      connectionID: "c", projectTitle: nil, url: URL(string: "https://v/tasks/2")!, detail: "")
+    let message = CatalogMessageItem(
+      title: "Empty", message: "", symbolName: "tray", tintColor: .gray)
+
+    let sorted = VikunjaSort.options[0].sort([message, undated, later, soon, overdue])
+    XCTAssertEqual(sorted.map(\.id), ["s.overdue", "s.later", "vikunja.task.c.1", "vikunja.task.c.2", message.id])
+  }
+
+  func testTaskTimestampsMirrorDueDatesSoSoonestSortsNewest() {
+    let now = Date()
+    let soon = VikunjaSort.timestamp(forDueDate: now)
+    let later = VikunjaSort.timestamp(forDueDate: now.addingTimeInterval(86_400))
+    let undated = VikunjaSort.timestamp(forDueDate: nil)
+    XCTAssertGreaterThan(soon, later)
+    XCTAssertGreaterThan(later, undated)
+    XCTAssertEqual(undated, .distantPast)
+  }
+
+  func testSortScoresOrderSectionsThenSoonestTasksThenUndatedByPriority() {
+    let now = Date()
+    let section = VikunjaSort.sectionScoreBase - 3
+    let soon = VikunjaSort.score(forDueDate: now, priority: 0)
+    let later = VikunjaSort.score(forDueDate: now.addingTimeInterval(86_400), priority: 5)
+    let undatedHigh = VikunjaSort.score(forDueDate: nil, priority: 4)
+    let undatedLow = VikunjaSort.score(forDueDate: nil, priority: 0)
+    XCTAssertGreaterThan(section, soon)
+    XCTAssertGreaterThan(soon, later)
+    XCTAssertGreaterThan(later, undatedHigh)
+    XCTAssertGreaterThan(undatedHigh, undatedLow)
+  }
+}

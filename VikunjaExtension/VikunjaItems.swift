@@ -5,7 +5,7 @@ import TunaKit
 /// One open (or just-completed) Vikunja task. Inherits `.url`, so Tuna's built-in Open action
 /// opens the task in the browser and Copy yields its link.
 final class VikunjaTaskItem: CatalogEntity, TextValueProviding, TimestampedCatalogItem,
-  @unchecked Sendable
+  ScoredCatalogItem, @unchecked Sendable
 {
   let task: VikunjaTask
   let connectionID: String
@@ -14,6 +14,9 @@ final class VikunjaTaskItem: CatalogEntity, TextValueProviding, TimestampedCatal
   private let detailText: String
 
   var textValue: String { path ?? title }
+
+  /// Score ordering: soonest due first, undated last (ties broken by priority).
+  var sortScore: Double { VikunjaSort.score(forDueDate: task.dueDate, priority: task.priority) }
 
   init(
     task: VikunjaTask,
@@ -26,7 +29,7 @@ final class VikunjaTaskItem: CatalogEntity, TextValueProviding, TimestampedCatal
     self.connectionID = connectionID
     self.projectTitle = projectTitle
     self.detailText = detail
-    self.capturedAtDate = task.dueDate ?? task.updatedAt ?? .distantPast
+    self.capturedAtDate = VikunjaSort.timestamp(forDueDate: task.dueDate)
     super.init(
       id: "vikunja.task.\(connectionID).\(task.id)",
       title: task.title,
@@ -188,13 +191,16 @@ final class VikunjaProjectItem: CatalogEntity, CatalogHierarchyNode, TextValuePr
 
 /// Grouping node used for due-date buckets and per-connection sections.
 final class VikunjaSectionItem: CatalogEntity, CatalogHierarchyNode, TimestampedCatalogItem,
-  @unchecked Sendable
+  ScoredCatalogItem, @unchecked Sendable
 {
   private let children: [CatalogItem]
   private let symbolName: String
   private let iconColor: CatalogIconColor
   let sortOrder: Int
   let capturedAtDate: Date
+
+  /// Sections outrank every task and keep their declared order.
+  var sortScore: Double { VikunjaSort.sectionScoreBase - Double(max(0, min(sortOrder, 10_000))) }
 
   init(
     title: String,

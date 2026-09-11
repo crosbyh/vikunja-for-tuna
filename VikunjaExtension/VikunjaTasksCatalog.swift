@@ -2,10 +2,17 @@ import Foundation
 import TunaKit
 
 /// Live-search root: type to search open tasks server-side, or browse them grouped by due date.
-public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog {
+public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, CatalogSortingProviding,
+  CatalogResultsSortModeProviding
+{
   public let identifier: String
   public let name: String
   public let scansOnStartup = false
+  public var sortOptions: [CatalogSortOption] { VikunjaSort.options }
+  public var defaultSortOptionID: String { VikunjaSort.dueOptionID }
+  public func resultsSortMode(forSortOptionID sortOptionID: String) -> ResultsSortMode? {
+    sortOptionID == VikunjaSort.dueOptionID ? .time : nil
+  }
 
   private let newTaskItem = VikunjaNewTaskItem()
   private var changeObserver: NSObjectProtocol?

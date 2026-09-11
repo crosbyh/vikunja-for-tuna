@@ -318,3 +318,56 @@ enum VikunjaCatalogSupport {
     }
   }
 }
+
+// MARK: - Sorting
+
+/// Catalog sort options shared by the Vikunja catalogs: sections keep their declared order,
+/// tasks sort by due date (undated last), everything else by title.
+enum VikunjaSort {
+  static let dueOptionID = "vikunja.due"
+
+  /// Tuna's time sort shows newest `capturedAtDate` first, so tasks carry a mirrored due date:
+  /// the sooner a task is due, the newer its timestamp. Undated tasks sort last.
+  private static let mirrorPoint = Date(timeIntervalSinceReferenceDate: 1_500_000_000)  // ~2048
+
+  static let sectionScoreBase: Double = 1_000_000_000_000
+
+  /// Higher scores sort first. Dated tasks score by how soon they are due (sooner is higher);
+  /// undated tasks fall below every dated one and order by priority.
+  static func score(forDueDate dueDate: Date?, priority: Int) -> Double {
+    guard let dueDate else { return Double(max(0, min(priority, 5))) }
+    let mirrored = 2 * mirrorPoint.timeIntervalSinceReferenceDate - dueDate.timeIntervalSinceReferenceDate
+    return 1_000 + max(0, mirrored)
+  }
+
+  static func timestamp(forDueDate dueDate: Date?) -> Date {
+    guard let dueDate else { return .distantPast }
+    return Date(timeIntervalSinceReferenceDate: 2 * mirrorPoint.timeIntervalSinceReferenceDate - dueDate.timeIntervalSinceReferenceDate)
+  }
+
+  static let options: [CatalogSortOption] = [
+    CatalogSortOption(id: dueOptionID, title: "Due Date", detail: "Soonest first", comparator: compareByDue),
+    .nameAscending,
+    .nameDescending,
+  ]
+
+  static func compareByDue(_ lhs: CatalogItem, _ rhs: CatalogItem) -> Bool {
+    switch (lhs, rhs) {
+    case (let l as VikunjaSectionItem, let r as VikunjaSectionItem):
+      if l.sortOrder != r.sortOrder { return l.sortOrder < r.sortOrder }
+    case (is VikunjaSectionItem, _):
+      return true
+    case (_, is VikunjaSectionItem):
+      return false
+    case (let l as VikunjaTaskItem, let r as VikunjaTaskItem):
+      return VikunjaCatalogSupport.sortedByDue([l.task, r.task]).first?.id == l.task.id
+    case (is VikunjaTaskItem, _):
+      return true
+    case (_, is VikunjaTaskItem):
+      return false
+    default:
+      break
+    }
+    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+  }
+}
