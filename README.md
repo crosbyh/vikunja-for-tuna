@@ -73,7 +73,23 @@ make package          # Release build + dist/store/*.tunaextension
 
 Or call `./scripts/tuna-extension <build|test|install|logs|package>` directly.
 `./scripts/screenshot-tuna NAME [DELAY]` captures Tuna's launcher window by ID (no focus
-change) into `media/screenshots/NAME.png` after a delay, so you can summon Tuna first. The scripts
+change) into `media/screenshots/NAME.png` after a delay, so you can summon Tuna first.
+`./scripts/sync-to-tunaextensions [path]` copies the extension into a
+[TunaExtensions](https://github.com/tunaformac/TunaExtensions) checkout for the store
+pull request (see Releasing below).
+
+## Releasing to the Tuna store
+
+Store extensions ship from the TunaExtensions repository, so this repo is the upstream and
+`VikunjaExtension/` gets copied over for each release:
+
+1. Bump `CFBundleShortVersionString` / `CFBundleVersion` in `Info.plist` and add a
+   `CHANGELOG.md` entry.
+2. `./scripts/sync-to-tunaextensions ../TunaExtensions` (a clone of your TunaExtensions fork
+   on a feature branch). The script swaps the signing team to the upstream one; the
+   per-extension `README.md` in TunaExtensions is maintained by hand.
+3. In that checkout: `./scripts/tuna-extension build --scheme VikunjaExtension --release`,
+   `make test`, commit, push, and open or update the pull request. The scripts
 are adapted from [tunaformac/TunaExtensions](https://github.com/tunaformac/TunaExtensions)
 (MIT, see `scripts/LICENSE-TunaExtensions`). Building needs Xcode 16+, `rg`, and network
 access for the TunaKit binary package. For non-interactive signing pass
