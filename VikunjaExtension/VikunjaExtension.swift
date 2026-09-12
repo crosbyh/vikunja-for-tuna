@@ -111,6 +111,6 @@ enum VikunjaSettings {
 }
 
 extension TypeID {
-  static let vikunjaTask = TypeID("com.crosbyhayton.tuna.type.vikunja-task")
-  static let vikunjaProject = TypeID("com.crosbyhayton.tuna.type.vikunja-project")
+  static let vikunjaTask = TypeID("com.crosbyh.tuna.type.vikunja-task")
+  static let vikunjaProject = TypeID("com.crosbyh.tuna.type.vikunja-project")
 }

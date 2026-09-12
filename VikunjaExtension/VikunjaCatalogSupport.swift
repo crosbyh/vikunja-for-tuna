@@ -11,7 +11,7 @@ struct VikunjaConnection: Sendable {
 }
 
 /// Posted (object: nil) after this extension writes to Vikunja so catalogs drop cached results.
-let VikunjaDataDidChange = Notification.Name("com.crosbyhayton.tuna.vikunja.dataDidChange")
+let VikunjaDataDidChange = Notification.Name("com.crosbyh.tuna.vikunja.dataDidChange")
 
 enum VikunjaCatalogSupport {
   static let providerIdentifier = "vikunja"

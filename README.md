@@ -104,7 +104,7 @@ The live API tests read the first `~/.netrc` entry whose host mentions `vikunja`
 ### Packaging
 
 `make package` builds Release, verifies the code signature, asks the installed Tuna binary
-to dump the declaration, and writes `dist/store/com.crosbyhayton.tuna.vikunja-<version>.tunaextension`.
+to dump the declaration, and writes `dist/store/com.crosbyh.tuna.vikunja-<version>.tunaextension`.
 Store signing happens during Tuna's review; to sign locally set `SIGNING_KEY` to an
 ed25519 PEM file. Compatibility floors come from the Swift declaration
 (`minTuna` 0.96, `minTunaKit` 1.22.0); override for experiments with `MIN_TUNA`,
@@ -115,7 +115,7 @@ ed25519 PEM file. Compatibility floors come from the Swift declaration
 Catalog, action, and type IDs are public API (they end up in hotkeys, rankings, and
 `tuna://` URLs). Do not rename: `vikunja`, `vikunja.projects`, `vikunja.actions`,
 `open-task`, `open-project`, `mark-done`, `add-task`, `add-task-to-project`, `to`,
-`com.crosbyhayton.tuna.type.vikunja-task`, `com.crosbyhayton.tuna.type.vikunja-project`,
+`com.crosbyh.tuna.type.vikunja-task`, `com.crosbyh.tuna.type.vikunja-project`,
 connection provider `vikunja`, setting `DefaultProject`.
 
 ## License
