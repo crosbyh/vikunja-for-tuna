@@ -30,13 +30,16 @@ sign_bundle_like_source() {
   local identity
   identity="$(signing_identity_for "$source_path" || true)"
 
-  if [[ -n "$identity" ]]; then
-    /usr/bin/codesign \
+  # Re-sign with the source's identity when it is available locally (e.g. your own Apple
+  # Development certificate); otherwise fall back to ad-hoc signing, which is enough for a
+  # development install. The TunaKit binary is signed with the Tuna developer's identity,
+  # which contributors do not have.
+  if [[ -n "$identity" ]] && /usr/bin/codesign \
       --force \
       --sign "$identity" \
       --timestamp=none \
       --preserve-metadata=identifier,entitlements,flags \
-      "$bundle_path" >/dev/null
+      "$bundle_path" >/dev/null 2>&1; then
     return
   fi
 
