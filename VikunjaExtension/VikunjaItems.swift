@@ -2,10 +2,10 @@ import AppKit
 import Foundation
 import TunaKit
 
-/// One open (or just-completed) Vikunja task. Inherits `.url`, so Tuna's built-in Open action
-/// opens the task in the browser and Copy yields its link.
-final class VikunjaTaskItem: CatalogEntity, TextValueProviding, TimestampedCatalogItem,
-  ScoredCatalogItem, @unchecked Sendable
+/// One open (or just-completed) Vikunja task. A plain entity (so Tuna shows its icon card);
+/// "Open in Vikunja" opens the link and Copy yields it.
+final class VikunjaTaskItem: CatalogEntity, TimestampedCatalogItem, ScoredCatalogItem,
+  CopyRepresentationProviding, @unchecked Sendable
 {
   let task: VikunjaTask
   let connectionID: String
@@ -13,7 +13,8 @@ final class VikunjaTaskItem: CatalogEntity, TextValueProviding, TimestampedCatal
   let capturedAtDate: Date
   private let detailText: String
 
-  var textValue: String { path ?? title }
+  /// Copy to Clipboard yields the task link.
+  var copyRepresentation: String? { path }
 
   /// Score ordering: soonest due first, undated last (ties broken by priority).
   var sortScore: Double { VikunjaSort.score(forDueDate: task.dueDate, priority: task.priority) }
@@ -73,9 +74,14 @@ final class VikunjaTaskItem: CatalogEntity, TextValueProviding, TimestampedCatal
 
 /// A Vikunja project. Browsable: children are its sub-projects followed by its open tasks,
 /// loaded on first browse. Also the target of “Add to Vikunja Project”.
-final class VikunjaProjectItem: CatalogEntity, CatalogHierarchyNode, TextValueProviding,
+final class VikunjaProjectItem: CatalogEntity, CatalogHierarchyNode, CopyRepresentationProviding,
   @unchecked Sendable
 {
+  static let defaultIDPrefix = "vikunja.project"
+
+  /// Copy to Clipboard yields the project link.
+  var copyRepresentation: String? { path }
+
   let project: VikunjaProject
   let connection: VikunjaConnection
   let projectPath: String
@@ -87,15 +93,14 @@ final class VikunjaProjectItem: CatalogEntity, CatalogHierarchyNode, TextValuePr
   private let loadState = DeferredCatalogLoadState()
   private let loadTask = LockedValue<Task<Void, Never>?>(nil)
 
-  var textValue: String { path ?? title }
-
   init(
     project: VikunjaProject,
     connection: VikunjaConnection,
     projectPath: String,
     url: URL,
     catalogIdentifier: String,
-    childProjects: [CatalogItem]
+    childProjects: [CatalogItem],
+    idPrefix: String = VikunjaProjectItem.defaultIDPrefix
   ) {
     self.project = project
     self.connection = connection
@@ -104,7 +109,7 @@ final class VikunjaProjectItem: CatalogEntity, CatalogHierarchyNode, TextValuePr
     self.catalogIdentifier = catalogIdentifier
     self.childProjects = childProjects
     super.init(
-      id: "vikunja.project.\(connection.id).\(project.id)",
+      id: "\(idPrefix).\(connection.id).\(project.id)",
       title: project.title,
       path: url.absoluteString
     )

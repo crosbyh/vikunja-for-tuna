@@ -3,6 +3,8 @@ import Foundation
 import TunaKit
 
 public final class VikunjaActionsCatalog: ActionCatalog {
+  nonisolated static let openTaskActionID = "open-task"
+  nonisolated static let openProjectActionID = "open-project"
   nonisolated static let markDoneActionID = "mark-done"
   nonisolated static let addTaskActionID = "add-task"
   nonisolated static let addTaskToProjectActionID = "add-task-to-project"
@@ -19,6 +21,22 @@ public final class VikunjaActionsCatalog: ActionCatalog {
   }
 
   static func makeActions() -> [CatalogAction] {
+    let openTask = PredicateAwareAction(id: openTaskActionID, title: "Open in Vikunja") {
+      subject, _ in
+      VikunjaActions.open(subject)
+    }
+    openTask.systemSymbolName = "arrow.up.right.square"
+    openTask.supportedSubjectTypes = [.vikunjaTask]
+    openTask.subjectPredicate = { $0 is VikunjaTaskItem }
+
+    let openProject = PredicateAwareAction(id: openProjectActionID, title: "Open in Vikunja") {
+      subject, _ in
+      VikunjaActions.open(subject)
+    }
+    openProject.systemSymbolName = "arrow.up.right.square"
+    openProject.supportedSubjectTypes = [.vikunjaProject]
+    openProject.subjectPredicate = { $0 is VikunjaProjectItem }
+
     let markDone = PredicateAwareAction(id: markDoneActionID, title: "Mark Done") { subject, _ in
       await VikunjaActions.markDone([subject])
     }
@@ -84,11 +102,20 @@ public final class VikunjaActionsCatalog: ActionCatalog {
     toAction.subjectPredicate = { $0 is VikunjaNewTaskItem }
     toAction.targetPredicate = { VikunjaActions.title(from: $0) != nil }
 
-    return [markDone, addTask, addToProject, toAction]
+    return [openTask, openProject, markDone, addTask, addToProject, toAction]
   }
 }
 
 enum VikunjaActions {
+  static func open(_ subject: CatalogItem) -> ActionResult {
+    guard let entity = subject as? CatalogEntity, let path = entity.path, let url = URL(string: path)
+    else {
+      return .failure("No Vikunja link for \(subject.title)")
+    }
+    NSWorkspace.shared.open(url)
+    return .success
+  }
+
   static func title(from item: CatalogItem?) -> String? {
     guard let item else { return nil }
     let value = item.textInputValue()?.trimmingCharacters(in: .whitespacesAndNewlines)

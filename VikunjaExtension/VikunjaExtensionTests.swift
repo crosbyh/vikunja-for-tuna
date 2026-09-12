@@ -22,7 +22,8 @@ final class VikunjaExtensionTests: XCTestCase {
     XCTAssertEqual(declaration.settings.map(\.key), ["DefaultProject"])
     XCTAssertEqual(
       Set(declaration.typeRegistrations.map(\.typeID)), [.vikunjaTask, .vikunjaProject])
-    XCTAssertTrue(declaration.typeRegistrations.allSatisfy { $0.inheritsFrom == [.url] })
+    XCTAssertTrue(declaration.typeRegistrations.allSatisfy { $0.inheritsFrom == [.entity] })
+    XCTAssertEqual(declaration.defaultActionRankings.map(\.typeID), [.vikunjaTask, .vikunjaProject])
     XCTAssertEqual(ext.connectionDefinitions.map(\.providerIdentifier), ["vikunja"])
     XCTAssertTrue(ext.connectionDefinitions[0].supportsBaseURL)
     XCTAssertEqual(ext.connectionDefinitions[0].kind, .secret)
@@ -193,6 +194,15 @@ final class VikunjaExtensionTests: XCTestCase {
     ])
     XCTAssertTrue(all.allSatisfy { $0.typeID == .vikunjaProject })
     XCTAssertEqual(all[0].path, "https://v.example/projects/2")
+
+    let (aliased, _) = VikunjaProjectsCatalog.makeProjectItems(
+      projects,
+      connection: connection,
+      server: try VikunjaServerConfiguration(baseURLString: "https://v.example"),
+      catalogIdentifier: "vikunja",
+      idPrefix: "vikunja.tasks.project"
+    )
+    XCTAssertEqual(aliased[0].id, "vikunja.tasks.project.\(record.id).2")
   }
 
   func testTasksCatalogExposesRootAndNewTaskEntry() {
@@ -211,7 +221,8 @@ final class VikunjaExtensionTests: XCTestCase {
     let catalog = VikunjaActionsCatalog(
       definition: ActionCatalogDefinition(identifier: "vikunja.actions", name: "Vikunja"))
     XCTAssertEqual(
-      catalog.actions.map(\.id), ["mark-done", "add-task", "add-task-to-project", "to"])
+      catalog.actions.map(\.id),
+      ["open-task", "open-project", "mark-done", "add-task", "add-task-to-project", "to"])
 
     let addToProject = try XCTUnwrap(catalog.actions.first { $0.id == "add-task-to-project" })
     XCTAssertNotNil(addToProject.batchCallback)
@@ -246,7 +257,8 @@ final class VikunjaExtensionTests: XCTestCase {
     XCTAssertEqual(item.id, "vikunja.task.conn.12")
     XCTAssertEqual(item.typeID, .vikunjaTask)
     XCTAssertEqual(item.path, "https://v.example/tasks/12")
-    XCTAssertEqual(item.textValue, "https://v.example/tasks/12")
+    XCTAssertFalse(item is TextValueProviding, "tasks show an icon card, not a text card")
+    XCTAssertEqual(item.copyRepresentation, "https://v.example/tasks/12")
     XCTAssertEqual(item.searchKeys, ["Buy milk", "Inbox", "@errands", "#12"])
   }
 

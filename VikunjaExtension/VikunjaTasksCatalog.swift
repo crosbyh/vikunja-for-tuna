@@ -146,7 +146,9 @@ public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, Catalog
       payload.projects,
       connection: connection,
       server: payload.server,
-      catalogIdentifier: VikunjaExtension.tasksCatalogIdentifier
+      catalogIdentifier: VikunjaExtension.tasksCatalogIdentifier,
+      // Distinct ids from the Projects catalog so Tuna doesn't dedupe them away.
+      idPrefix: "vikunja.tasks.project"
     )
     let byProject: [CatalogItem] =
       projectRoots.isEmpty

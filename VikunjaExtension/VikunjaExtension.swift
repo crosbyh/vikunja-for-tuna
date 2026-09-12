@@ -55,12 +55,33 @@ public final class VikunjaExtension: Extension {
         TypeRegistrationDefinition(
           typeID: .vikunjaTask,
           displayName: "Vikunja Tasks",
-          inheritsFrom: [.url]
+          inheritsFrom: [.entity]
         ),
         TypeRegistrationDefinition(
           typeID: .vikunjaProject,
           displayName: "Vikunja Projects",
-          inheritsFrom: [.url]
+          inheritsFrom: [.entity]
+        ),
+      ],
+      defaultActionRankings: [
+        DefaultActionRankingDefinition(
+          typeID: .vikunjaTask,
+          actions: [
+            ActionReference(
+              catalogIdentifier: Self.actionsCatalogIdentifier,
+              actionID: VikunjaActionsCatalog.openTaskActionID),
+            ActionReference(
+              catalogIdentifier: Self.actionsCatalogIdentifier,
+              actionID: VikunjaActionsCatalog.markDoneActionID),
+          ]
+        ),
+        DefaultActionRankingDefinition(
+          typeID: .vikunjaProject,
+          actions: [
+            ActionReference(
+              catalogIdentifier: Self.actionsCatalogIdentifier,
+              actionID: VikunjaActionsCatalog.openProjectActionID)
+          ]
         ),
       ]
     )

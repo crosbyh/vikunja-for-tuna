@@ -9,9 +9,8 @@ Requires Tuna 0.96 or later (TunaKit 1.22.0) and macOS 15.
 | | |
 | --- | --- |
 | ![Open tasks sorted by due date](media/screenshots/01-browse.png) | ![Tasks inside the Work project](media/screenshots/02-project.png) |
-| ![Live search](media/screenshots/03-search.png) | ![Mark Done action](media/screenshots/04-actions.png) |
-
-![Quick capture with New Vikunja Task](media/screenshots/05-quick-add.png)
+| ![Live search](media/screenshots/03-search.png) | ![Actions on a task](media/screenshots/04-actions.png) |
+| ![Overdue tasks](media/screenshots/06-overdue.png) | ![Quick capture with New Vikunja Task](media/screenshots/05-quick-add.png) |
 
 ## What it adds
 
@@ -19,14 +18,14 @@ Requires Tuna 0.96 or later (TunaKit 1.22.0) and macOS 15.
 
 | Catalog | ID | What it does |
 | --- | --- | --- |
-| Vikunja | `vikunja` | Live-search root. Press → for every open task sorted by due date, or type to search server-side (title and description). Its Browse view groups tasks as Overdue, Today, Next 7 Days, Later, and No Due Date, plus a By Project group that drills into each project. Also holds the **New Vikunja Task** quick-capture entry. |
+| Vikunja | `vikunja` | Live-search root. Tab → **Search** (or press →) lists every open task sorted by due date and searches server-side as you type (title and description). Tab → **Browse** groups tasks as Overdue, Today, Next 7 Days, Later, and No Due Date, plus a By Project group that drills into each project. Also holds the **New Vikunja Task** quick-capture entry. |
 | Projects | `vikunja.projects` | Every non-archived project. Browse into a project to see its sub-projects and open tasks. Projects are also the targets for “Add to Vikunja Project”. Enable global scope for this source if you want project names in root search. |
 
 **Actions (`vikunja.actions`)**
 
 | Action | Applies to | Effect |
 | --- | --- | --- |
-| Open (built-in) | task, project | Tasks and projects are URL-typed, so Tuna's own Open, Copy, and share actions work on them. |
+| Open in Vikunja | task, project | Opens the task or project page in your browser. Default action (Return). Copy to Clipboard yields the link. |
 | Mark Done | an open task (batch OK) | `POST /tasks/{id}` with `done: true`, sending the full task back so nothing else changes. |
 | Add to Vikunja | text (batch OK) | Creates one task per selected text in the **default project**. |
 | Add to Vikunja Project | text, target: a project | Creates the task in the chosen project. The target pane is scoped to your projects and refreshes them when opened. |
@@ -67,6 +66,7 @@ suite is the only code path that deletes, and it only deletes the task it create
 make build            # Debug build
 make test             # unit tests (+ live API tests when ~/.netrc has a Vikunja entry)
 make install-restart  # install into ~/Library/Application Support/Tuna/ExtensionsDev and restart Tuna
+                      # (waits for Tuna to quit first; a rescan alone never loads new code)
 make logs             # last 20 minutes of Tuna extension logs
 make package          # Release build + dist/store/*.tunaextension
 ```
@@ -98,7 +98,7 @@ ed25519 PEM file. Compatibility floors come from the Swift declaration
 
 Catalog, action, and type IDs are public API (they end up in hotkeys, rankings, and
 `tuna://` URLs). Do not rename: `vikunja`, `vikunja.projects`, `vikunja.actions`,
-`mark-done`, `add-task`, `add-task-to-project`, `to`,
+`open-task`, `open-project`, `mark-done`, `add-task`, `add-task-to-project`, `to`,
 `com.crosbyhayton.tuna.type.vikunja-task`, `com.crosbyhayton.tuna.type.vikunja-project`,
 connection provider `vikunja`, setting `DefaultProject`.
 

@@ -142,7 +142,8 @@ public final class VikunjaProjectsCatalog: Catalog, RescanSchedulingCatalog,
     _ projects: [VikunjaProject],
     connection: VikunjaConnection,
     server: VikunjaServerConfiguration,
-    catalogIdentifier: String
+    catalogIdentifier: String,
+    idPrefix: String = VikunjaProjectItem.defaultIDPrefix
   ) -> (all: [VikunjaProjectItem], roots: [CatalogItem]) {
     let sorted = projects.sorted {
       $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
@@ -162,7 +163,8 @@ public final class VikunjaProjectsCatalog: Catalog, RescanSchedulingCatalog,
         projectPath: VikunjaCatalogSupport.projectPath(project, in: projects),
         url: server.projectURL(id: project.id),
         catalogIdentifier: catalogIdentifier,
-        childProjects: children
+        childProjects: children,
+        idPrefix: idPrefix
       )
       built[project.id] = item
       return item

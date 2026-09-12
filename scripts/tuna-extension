@@ -86,7 +86,15 @@ case "$command" in
     "$ROOT/scripts/install-extension-product.sh" \
       "$scheme" "$INSTALL_DIR" "$configuration" "platform=macOS,arch=$ARCH" "$DERIVED_DATA"
     if [[ "$restart" == "true" ]]; then
+      # Wait for the old process to exit before relaunching; opening too early just
+      # reactivates the running instance and the new code never loads.
+      old_pid="$(pgrep -x Tuna || true)"
       osascript -e 'tell application "Tuna" to quit' >/dev/null 2>&1 || true
+      for _ in $(seq 1 15); do pgrep -x Tuna >/dev/null || break; sleep 1; done
+      if [[ -n "$old_pid" ]] && pgrep -x Tuna >/dev/null; then
+        kill -TERM "$old_pid" 2>/dev/null || true
+        for _ in $(seq 1 10); do pgrep -x Tuna >/dev/null || break; sleep 1; done
+      fi
       open -a Tuna
       echo "Restarted Tuna."
     else
