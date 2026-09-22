@@ -54,6 +54,20 @@ final class VikunjaExtensionTests: XCTestCase {
     }
   }
 
+  func testServerConfigurationRefusesPlainHTTPExceptLoopback() throws {
+    XCTAssertThrowsError(try VikunjaServerConfiguration(baseURLString: "http://tasks.example.com")) {
+      error in
+      XCTAssertEqual(error as? VikunjaAPIError, .insecureServerURL)
+    }
+    XCTAssertThrowsError(try VikunjaServerConfiguration(baseURLString: "HTTP://192.168.1.5:3456")) {
+      error in
+      XCTAssertEqual(error as? VikunjaAPIError, .insecureServerURL)
+    }
+    for local in ["http://localhost:3456", "http://127.0.0.1:3456", "http://[::1]:3456"] {
+      XCTAssertNoThrow(try VikunjaServerConfiguration(baseURLString: local), local)
+    }
+  }
+
   // MARK: Parsing
 
   func testParseTaskHandlesNullDatesLabelsAndPriority() throws {
@@ -331,5 +345,125 @@ final class VikunjaSortTests: XCTestCase {
     XCTAssertGreaterThan(soon, later)
     XCTAssertGreaterThan(later, undatedHigh)
     XCTAssertGreaterThan(undatedHigh, undatedLow)
+  }
+}
+
+// MARK: - Networking
+
+/// Serves canned responses keyed by request path + page so the client can be tested offline.
+final class VikunjaStubProtocol: URLProtocol {
+  nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, [String: String], Data))?
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    guard let handler = Self.handler, let url = request.url else {
+      client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+      return
+    }
+    let (status, headers, data) = handler(request)
+    let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: data)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+
+  static func session() -> URLSession {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [VikunjaStubProtocol.self]
+    return URLSession(configuration: configuration)
+  }
+}
+
+final class VikunjaNetworkingTests: XCTestCase {
+  override func tearDown() {
+    VikunjaStubProtocol.handler = nil
+    super.tearDown()
+  }
+
+  private static func tasksPage(_ page: Int, count: Int) -> Data {
+    let tasks = (0..<count).map { ["id": page * 1000 + $0, "title": "Task \($0)"] as [String: Any] }
+    return try! JSONSerialization.data(withJSONObject: tasks)
+  }
+
+  private static func page(of request: URLRequest) -> Int {
+    URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+      .queryItems?.first { $0.name == "page" }?.value.flatMap(Int.init) ?? 1
+  }
+
+  private func makeClient(host: String = "tasks.example.com") throws -> VikunjaAPIClient {
+    VikunjaAPIClient(
+      server: try VikunjaServerConfiguration(baseURLString: "https://\(host)"),
+      token: "token", session: VikunjaStubProtocol.session())
+  }
+
+  func testTaskListingReportsTruncationPastPageLimit() async throws {
+    let perPage = VikunjaAPIClient.perPage
+    VikunjaStubProtocol.handler = { request in
+      (200, ["x-pagination-total-pages": "20"], Self.tasksPage(Self.page(of: request), count: perPage))
+    }
+    let listing = try await makeClient().fetchOpenTasks()
+    XCTAssertTrue(listing.isTruncated)
+    XCTAssertEqual(listing.tasks.count, perPage * VikunjaAPIClient.maxTaskPages)
+
+    let search = try await makeClient().searchOpenTasks(query: "x")
+    XCTAssertTrue(search.isTruncated)
+    XCTAssertEqual(search.tasks.count, perPage * VikunjaAPIClient.maxSearchPages)
+  }
+
+  func testTaskListingEndingOnLastPageIsComplete() async throws {
+    let perPage = VikunjaAPIClient.perPage
+    let pages = VikunjaAPIClient.maxTaskPages
+    VikunjaStubProtocol.handler = { request in
+      (200, ["x-pagination-total-pages": "\(pages)"], Self.tasksPage(Self.page(of: request), count: perPage))
+    }
+    let listing = try await makeClient().fetchOpenTasks()
+    XCTAssertFalse(listing.isTruncated)
+    XCTAssertEqual(listing.tasks.count, perPage * pages)
+  }
+
+  func testProjectsAreFetchedPastTheTaskPageLimit() async throws {
+    let perPage = VikunjaAPIClient.perPage
+    let pages = VikunjaAPIClient.maxTaskPages + 4
+    VikunjaStubProtocol.handler = { request in
+      let page = Self.page(of: request)
+      let projects = (0..<perPage).map { ["id": page * 1000 + $0 + 1, "title": "P\($0)"] as [String: Any] }
+      return (
+        200, ["x-pagination-total-pages": "\(pages)"],
+        try! JSONSerialization.data(withJSONObject: projects)
+      )
+    }
+    let projects = try await makeClient().fetchProjects()
+    XCTAssertEqual(projects.count, perPage * pages)
+  }
+
+  func testOneFailingConnectionDoesNotHideTheOthers() async throws {
+    VikunjaStubProtocol.handler = { request in
+      if request.url?.host == "broken.example.com" {
+        return (401, [:], Data(#"{"message":"invalid token"}"#.utf8))
+      }
+      return (200, [:], Self.tasksPage(1, count: 2))
+    }
+    let connections = ["healthy.example.com", "broken.example.com", "other.example.com"].map {
+      VikunjaConnection(
+        record: ExtensionConnectionRecord(
+          providerIdentifier: VikunjaCatalogSupport.providerIdentifier, displayName: $0,
+          baseURLString: "https://\($0)"),
+        accessToken: "token")
+    }
+    let session = VikunjaStubProtocol.session()
+    let results = await VikunjaCatalogSupport.loadPerConnection(connections) { connection in
+      try await VikunjaAPIClient(connection: connection, session: session).fetchOpenTasks()
+    }
+
+    XCTAssertEqual(results.map(\.connection.displayName), connections.map(\.displayName))
+    XCTAssertEqual(try results[0].payload.get().tasks.count, 2)
+    XCTAssertThrowsError(try results[1].payload.get()) { error in
+      XCTAssertEqual(error as? VikunjaAPIError, .invalidToken)
+    }
+    XCTAssertEqual(try results[2].payload.get().tasks.count, 2)
   }
 }

@@ -67,14 +67,14 @@ public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, Catalog
       return [VikunjaCatalogSupport.authRequiredItem()]
     }
 
-    let results = try await VikunjaCatalogSupport.loadPerConnection(connections) { connection in
+    let results = await VikunjaCatalogSupport.loadPerConnection(connections) { connection in
       try await Self.loadTasks(for: connection)
     }
     let totalConnections = connections.count
 
     if totalConnections == 1, let first = results.first {
       return makeBuckets(
-        first.payload,
+        try first.payload.get(),
         connection: first.connection,
         totalConnections: 1,
         baseIdentifier: "vikunja.tasks"
@@ -82,25 +82,35 @@ public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, Catalog
     }
 
     return results.map { result in
-      VikunjaSectionItem(
-        title: result.connection.displayName,
-        id: "vikunja.tasks.connection.\(result.offset)",
-        detail: "Open tasks",
-        symbolName: "checkmark.circle",
-        iconColor: .green,
-        children: makeBuckets(
-          result.payload,
+      let children: [CatalogItem]
+      let detail: String
+      switch result.payload {
+      case .success(let payload):
+        children = makeBuckets(
+          payload,
           connection: result.connection,
           totalConnections: totalConnections,
           baseIdentifier: "vikunja.tasks.\(result.offset)"
-        ),
+        )
+        detail = "Open tasks"
+      case .failure(let error):
+        children = [VikunjaCatalogSupport.errorItem(error)]
+        detail = "Couldn’t load tasks"
+      }
+      return VikunjaSectionItem(
+        title: result.connection.displayName,
+        id: "vikunja.tasks.connection.\(result.offset)",
+        detail: detail,
+        symbolName: "checkmark.circle",
+        iconColor: .green,
+        children: children,
         sortOrder: result.offset
       )
     }
   }
 
   private struct ConnectionTasks: Sendable {
-    let tasks: [VikunjaTask]
+    let listing: VikunjaTaskListing
     let projects: [VikunjaProject]
     let server: VikunjaServerConfiguration
   }
@@ -111,7 +121,7 @@ public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, Catalog
     let client = try VikunjaAPIClient(connection: connection)
     async let tasks = client.fetchOpenTasks()
     async let projects = VikunjaProjectCache.shared.projects(for: connection, client: client)
-    return ConnectionTasks(tasks: try await tasks, projects: try await projects, server: client.server)
+    return ConnectionTasks(listing: try await tasks, projects: try await projects, server: client.server)
   }
 
   private nonisolated static func makeBuckets(
@@ -121,7 +131,7 @@ public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, Catalog
     baseIdentifier: String
   ) -> [CatalogItem] {
     let now = Date()
-    let sorted = VikunjaCatalogSupport.sortedByDue(payload.tasks)
+    let sorted = VikunjaCatalogSupport.sortedByDue(payload.listing.tasks)
     var grouped: [VikunjaCatalogSupport.DueBucket: [VikunjaTask]] = [:]
     for task in sorted {
       grouped[VikunjaCatalogSupport.dueBucket(for: task, now: now), default: []].append(task)
@@ -165,13 +175,18 @@ public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, Catalog
         )
       ]
 
+    let truncated: [CatalogItem] =
+      payload.listing.isTruncated
+      ? [VikunjaCatalogSupport.truncatedItem(shown: payload.listing.tasks.count, searching: false)]
+      : []
+
     guard !sections.isEmpty else {
       return [
         VikunjaCatalogSupport.emptyItem(
           title: "No open tasks", message: "Everything in Vikunja is done.")
       ] + byProject
     }
-    return sections + byProject
+    return sections + byProject + truncated
   }
 
   private nonisolated static func makeItem(
@@ -199,24 +214,40 @@ public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, Catalog
     }
 
     let totalConnections = connections.count
-    let results = try await VikunjaCatalogSupport.loadPerConnection(connections) { connection in
+    let results = await VikunjaCatalogSupport.loadPerConnection(connections) { connection in
       let client = try VikunjaAPIClient(connection: connection)
       async let tasks = trimmed.isEmpty
         ? client.fetchOpenTasks() : client.searchOpenTasks(query: trimmed)
       async let projects = VikunjaProjectCache.shared.projects(for: connection, client: client)
       return ConnectionTasks(
-        tasks: try await tasks, projects: try await projects, server: client.server)
+        listing: try await tasks, projects: try await projects, server: client.server)
+    }
+    if totalConnections == 1, let first = results.first, case .failure(let error) = first.payload {
+      throw error
     }
 
-    let items = results.flatMap { result in
-      VikunjaCatalogSupport.sortedByDue(result.payload.tasks).map {
-        makeItem(
-          $0, payload: result.payload, connection: result.connection,
-          totalConnections: totalConnections)
+    var items: [CatalogItem] = []
+    var notices: [CatalogItem] = []
+    for result in results {
+      switch result.payload {
+      case .success(let payload):
+        items += VikunjaCatalogSupport.sortedByDue(payload.listing.tasks).map {
+          makeItem(
+            $0, payload: payload, connection: result.connection,
+            totalConnections: totalConnections)
+        }
+        if payload.listing.isTruncated {
+          notices.append(
+            VikunjaCatalogSupport.truncatedItem(
+              shown: payload.listing.tasks.count, searching: !trimmed.isEmpty))
+        }
+      case .failure(let error):
+        notices.append(VikunjaCatalogSupport.errorItem(error, connection: result.connection))
       }
     }
 
-    guard !items.isEmpty else {
+    // Only claim "no tasks" when every connection answered.
+    guard !items.isEmpty || !notices.isEmpty else {
       return [
         VikunjaCatalogSupport.emptyItem(
           title: trimmed.isEmpty ? "No open tasks" : "No matching tasks",
@@ -225,7 +256,7 @@ public final class VikunjaTasksCatalog: Catalog, StartupScanningCatalog, Catalog
             : "No open task matches “\(trimmed)”.")
       ]
     }
-    return items
+    return items + notices
   }
 }
 

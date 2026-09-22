@@ -168,9 +168,12 @@ final class VikunjaProjectItem: CatalogEntity, CatalogHierarchyNode, CopyReprese
         guard let self else { return }
         do {
           let client = try VikunjaAPIClient(connection: connection)
-          let tasks = VikunjaCatalogSupport.sortedByDue(
-            try await client.fetchOpenTasks(projectID: project.id))
+          let listing = try await client.fetchOpenTasks(projectID: project.id)
+          let tasks = VikunjaCatalogSupport.sortedByDue(listing.tasks)
           if Task.isCancelled { return }
+          let truncated: [CatalogItem] =
+            listing.isTruncated
+            ? [VikunjaCatalogSupport.truncatedItem(shown: tasks.count, searching: false)] : []
           childrenStore.value = tasks.isEmpty
             ? [
               VikunjaCatalogSupport.emptyItem(
@@ -180,7 +183,7 @@ final class VikunjaProjectItem: CatalogEntity, CatalogHierarchyNode, CopyReprese
               VikunjaCatalogSupport.makeTaskItem(
                 $0, projectTitle: nil, connection: connection, totalConnections: 1,
                 server: client.server)
-            }
+            } + truncated
           messageStore.value = nil
         } catch {
           childrenStore.value = []

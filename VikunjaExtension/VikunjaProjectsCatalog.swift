@@ -74,21 +74,30 @@ public final class VikunjaProjectsCatalog: Catalog, RescanSchedulingCatalog,
       return
     }
 
-    do {
-      await VikunjaProjectCache.shared.invalidate()
-      let results = try await VikunjaCatalogSupport.loadPerConnection(connections) { connection in
-        let client = try VikunjaAPIClient(connection: connection)
-        let projects = try await VikunjaProjectCache.shared.projects(for: connection, client: client)
-        return (projects: projects, server: client.server)
-      }
+    await VikunjaProjectCache.shared.invalidate()
+    let results = await VikunjaCatalogSupport.loadPerConnection(connections) { connection in
+      let client = try VikunjaAPIClient(connection: connection)
+      let projects = try await VikunjaProjectCache.shared.projects(for: connection, client: client)
+      return (projects: projects, server: client.server)
+    }
 
-      var allItems: [VikunjaProjectItem] = []
-      var topLevel: [CatalogItem] = []
-      for result in results {
+    if results.count == 1, let first = results.first, case .failure(let error) = first.payload {
+      projectsStore.value = []
+      topLevelStore.value = []
+      messageStore.value = [VikunjaCatalogSupport.errorItem(error)]
+      VikunjaCatalogSupport.postScanFinished(identifier: identifier)
+      return
+    }
+
+    var allItems: [VikunjaProjectItem] = []
+    var topLevel: [CatalogItem] = []
+    for result in results {
+      switch result.payload {
+      case .success(let payload):
         let (items, roots) = Self.makeProjectItems(
-          result.payload.projects,
+          payload.projects,
           connection: result.connection,
-          server: result.payload.server,
+          server: payload.server,
           catalogIdentifier: identifier
         )
         allItems.append(contentsOf: items)
@@ -106,16 +115,24 @@ public final class VikunjaProjectsCatalog: Catalog, RescanSchedulingCatalog,
               sortOrder: result.offset
             ))
         }
+      case .failure(let error):
+        // Keep healthy connections browsable; the failing one shows its error in place.
+        topLevel.append(
+          VikunjaSectionItem(
+            title: result.connection.displayName,
+            id: "vikunja.projects.connection.\(result.offset)",
+            detail: "Couldn’t load projects",
+            symbolName: "folder",
+            iconColor: .blue,
+            children: [VikunjaCatalogSupport.errorItem(error)],
+            sortOrder: result.offset
+          ))
       }
-
-      projectsStore.value = allItems
-      topLevelStore.value = topLevel
-      messageStore.value = nil
-    } catch {
-      projectsStore.value = []
-      topLevelStore.value = []
-      messageStore.value = [VikunjaCatalogSupport.errorItem(error)]
     }
+
+    projectsStore.value = allItems
+    topLevelStore.value = topLevel
+    messageStore.value = nil
 
     VikunjaCatalogSupport.postScanFinished(identifier: identifier)
   }

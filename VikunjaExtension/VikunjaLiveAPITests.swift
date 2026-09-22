@@ -3,13 +3,17 @@ import XCTest
 
 @testable import TunaVikunja
 
-/// Exercises the real Vikunja API when credentials are available in `~/.netrc`:
+/// Exercises a real Vikunja server. Skipped unless `VIKUNJA_LIVE_TESTS=1` is set in the test
+/// process (`make test-live`, or `TEST_RUNNER_VIKUNJA_LIVE_TESTS=1` with xcodebuild), so the
+/// normal suite never touches a server even when credentials are lying around.
+///
+/// Credentials come from `VIKUNJA_TEST_HOST` + `VIKUNJA_TEST_TOKEN`, or from `~/.netrc`:
 ///
 ///     machine tasks.example.com login token password API-TOKEN
 ///
-/// Set `VIKUNJA_TEST_HOST` to pick the netrc machine (default: the first `machine` entry that
-/// mentions "vikunja" or "tasks"). Skipped entirely when no credentials are found. Writes one
-/// task titled "Tuna extension smoke test", marks it done, then deletes it.
+/// With netrc, `VIKUNJA_TEST_HOST` picks the machine (default: the first entry that mentions
+/// "vikunja" or "tasks"). The round-trip test creates one task titled "Tuna extension smoke
+/// test" in the Inbox, marks it done, then deletes it.
 final class VikunjaLiveAPITests: XCTestCase {
   private struct Credentials {
     let host: String
@@ -53,6 +57,9 @@ final class VikunjaLiveAPITests: XCTestCase {
   }
 
   private func makeClient() throws -> VikunjaAPIClient {
+    guard ProcessInfo.processInfo.environment["VIKUNJA_LIVE_TESTS"] == "1" else {
+      throw XCTSkip("Live API tests are opt-in; set VIKUNJA_LIVE_TESTS=1 (make test-live).")
+    }
     guard let credentials = Self.credentials() else {
       throw XCTSkip("No Vikunja credentials in ~/.netrc; skipping live API tests.")
     }
@@ -66,18 +73,18 @@ final class VikunjaLiveAPITests: XCTestCase {
     XCTAssertFalse(projects.isEmpty, "expected at least one project")
     XCTAssertTrue(projects.allSatisfy { $0.id > 0 && !$0.isArchived })
 
-    let tasks = try await client.fetchOpenTasks()
+    let tasks = try await client.fetchOpenTasks().tasks
     XCTAssertTrue(tasks.allSatisfy { !$0.done })
 
     if let project = projects.first(where: { project in tasks.contains { $0.projectID == project.id } }) {
-      let projectTasks = try await client.fetchOpenTasks(projectID: project.id)
+      let projectTasks = try await client.fetchOpenTasks(projectID: project.id).tasks
       XCTAssertTrue(projectTasks.allSatisfy { $0.projectID == project.id && !$0.done })
     }
   }
 
   func testSearchReturnsOnlyOpenTasks() async throws {
     let client = try makeClient()
-    let results = try await client.searchOpenTasks(query: "a")
+    let results = try await client.searchOpenTasks(query: "a").tasks
     XCTAssertTrue(results.allSatisfy { !$0.done })
   }
 

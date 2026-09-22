@@ -25,7 +25,7 @@ enum VikunjaCatalogSupport {
     baseURLLabel: "Vikunja URL",
     secretLabel: "API Token",
     description:
-      "Enter the URL of your Vikunja server (for example https://tasks.example.com) and an API token created in Vikunja under Settings → API Tokens with read and write access to Projects and Tasks.",
+      "Enter the HTTPS URL of your Vikunja server (for example https://tasks.example.com) and an API token created in Vikunja under Settings → API Tokens with read and write access to Projects and Tasks.",
     connectButtonLabel: "Add Connection"
   )
 
@@ -81,20 +81,26 @@ enum VikunjaCatalogSupport {
       title: title, message: message, symbolName: "tray", tintColor: .secondaryLabelColor)
   }
 
-  static func errorItem(_ error: Error) -> CatalogMessageItem {
-    if let error = error as? VikunjaAPIError {
-      return CatalogMessageItem(
-        title: error.title,
-        message: error.localizedDescription,
-        symbolName: "exclamationmark.triangle",
-        tintColor: .systemOrange
-      )
-    }
+  /// With several connections, pass the failing one so its name prefixes the title.
+  static func errorItem(_ error: Error, connection: VikunjaConnection? = nil) -> CatalogMessageItem {
+    let title = (error as? VikunjaAPIError)?.title ?? "Vikunja request failed"
     return CatalogMessageItem(
-      title: "Vikunja request failed",
+      title: connection.map { "\($0.displayName): \(title)" } ?? title,
       message: error.localizedDescription,
       symbolName: "exclamationmark.triangle",
       tintColor: .systemOrange
+    )
+  }
+
+  /// Shown after a task listing that stopped at the page limit.
+  static func truncatedItem(shown: Int, searching: Bool) -> CatalogMessageItem {
+    CatalogMessageItem(
+      title: "Showing the first \(shown) tasks",
+      message: searching
+        ? "Refine the search to find tasks past the first \(shown)."
+        : "Type to search, or open Vikunja, to reach tasks past the first \(shown).",
+      symbolName: "ellipsis.circle",
+      tintColor: .secondaryLabelColor
     )
   }
 
@@ -108,18 +114,31 @@ enum VikunjaCatalogSupport {
 
   // MARK: Multi-connection helpers
 
+  struct ConnectionResult<Payload: Sendable>: Sendable {
+    let offset: Int
+    let connection: VikunjaConnection
+    let payload: Result<Payload, Error>
+  }
+
+  /// Runs `operation` for every connection concurrently. Failures are captured per connection so
+  /// one unreachable or unauthorized server doesn't hide the others. Results keep connection order.
   static func loadPerConnection<Payload: Sendable>(
     _ connections: [VikunjaConnection],
     operation: @escaping @Sendable (VikunjaConnection) async throws -> Payload
-  ) async throws -> [(offset: Int, connection: VikunjaConnection, payload: Payload)] {
-    try await withThrowingTaskGroup(
-      of: (offset: Int, connection: VikunjaConnection, payload: Payload).self
-    ) { group in
+  ) async -> [ConnectionResult<Payload>] {
+    await withTaskGroup(of: ConnectionResult<Payload>.self) { group in
       for (offset, connection) in connections.enumerated() {
-        group.addTask { (offset, connection, try await operation(connection)) }
+        group.addTask {
+          do {
+            return ConnectionResult(
+              offset: offset, connection: connection, payload: .success(try await operation(connection)))
+          } catch {
+            return ConnectionResult(offset: offset, connection: connection, payload: .failure(error))
+          }
+        }
       }
-      var results: [(offset: Int, connection: VikunjaConnection, payload: Payload)] = []
-      for try await result in group { results.append(result) }
+      var results: [ConnectionResult<Payload>] = []
+      for await result in group { results.append(result) }
       return results.sorted { $0.offset < $1.offset }
     }
   }

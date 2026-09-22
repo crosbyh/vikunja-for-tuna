@@ -57,6 +57,10 @@ struct VikunjaServerConfiguration: Sendable, Equatable {
     else {
       throw VikunjaAPIError.invalidServerURL
     }
+    // The API token travels in every request header, so plain HTTP is only allowed on this Mac.
+    guard scheme == "https" || Self.isLoopback(host: host) else {
+      throw VikunjaAPIError.insecureServerURL
+    }
 
     components.query = nil
     components.fragment = nil
@@ -72,6 +76,11 @@ struct VikunjaServerConfiguration: Sendable, Equatable {
     self.apiBaseURL = webBaseURL.appending(path: "api/v1")
   }
 
+  static func isLoopback(host: String) -> Bool {
+    let lowered = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    return lowered == "localhost" || lowered == "::1" || lowered.hasPrefix("127.")
+  }
+
   func taskURL(id: Int) -> URL {
     webBaseURL.appending(path: "tasks/\(id)")
   }
@@ -85,6 +94,7 @@ enum VikunjaAPIError: LocalizedError, Equatable {
   case missingConnection
   case missingServerURL
   case invalidServerURL
+  case insecureServerURL
   case invalidToken
   case missingScope
   case notFound
@@ -98,6 +108,7 @@ enum VikunjaAPIError: LocalizedError, Equatable {
     case .missingConnection: return "Connect Vikunja"
     case .missingServerURL: return "Vikunja URL missing"
     case .invalidServerURL: return "Invalid Vikunja URL"
+    case .insecureServerURL: return "Vikunja URL must use HTTPS"
     case .invalidToken: return "Invalid Vikunja token"
     case .missingScope: return "Token missing permissions"
     case .notFound: return "Not found in Vikunja"
@@ -116,6 +127,8 @@ enum VikunjaAPIError: LocalizedError, Equatable {
       return "Enter your Vikunja server URL in the connection settings."
     case .invalidServerURL:
       return "Use a full URL such as https://tasks.example.com."
+    case .insecureServerURL:
+      return "Your API token would be sent unencrypted over HTTP. Change the URL to https://."
     case .invalidToken:
       return "Update the API token in extension settings and try again."
     case .missingScope:
@@ -137,11 +150,21 @@ enum VikunjaAPIError: LocalizedError, Equatable {
   }
 }
 
+/// A task listing plus whether more matching tasks exist past the fetch limit.
+struct VikunjaTaskListing: Sendable, Equatable {
+  let tasks: [VikunjaTask]
+  let isTruncated: Bool
+}
+
 struct VikunjaAPIClient: Sendable {
   static let nullDateString = "0001-01-01T00:00:00Z"
-  private static let perPage = 50
-  /// Upper bound on pages fetched for any listing (50 tasks per page).
-  private static let maxPages = 6
+  static let perPage = 50
+  /// Task listings stop after this many pages (300 tasks) and report `isTruncated`.
+  static let maxTaskPages = 6
+  /// Search results stop after this many pages (100 tasks) and report `isTruncated`.
+  static let maxSearchPages = 2
+  /// Safety stop for listings that should be complete (projects).
+  private static let maxPagesUnbounded = 1_000
 
   let server: VikunjaServerConfiguration
   private let token: String
@@ -162,54 +185,48 @@ struct VikunjaAPIClient: Sendable {
   // MARK: Projects
 
   func fetchProjects() async throws -> [VikunjaProject] {
-    let payloads = try await fetchPaged(path: "projects", queryItems: [])
+    let (payloads, _) = try await fetchPaged(
+      path: "projects", queryItems: [], maxPages: Self.maxPagesUnbounded)
     return payloads.compactMap(Self.parseProject)
       .filter { $0.id > 0 && !$0.isArchived }
   }
 
   // MARK: Tasks
 
-  /// Open tasks across every project the token can see.
-  func fetchOpenTasks() async throws -> [VikunjaTask] {
-    let payloads = try await fetchPaged(
-      path: "tasks",
-      queryItems: [
-        URLQueryItem(name: "filter", value: "done = false"),
-        URLQueryItem(name: "sort_by", value: "due_date"),
-        URLQueryItem(name: "order_by", value: "asc"),
-      ]
-    )
-    return payloads.compactMap(Self.parseTask)
+  private static let openTaskQuery = [
+    URLQueryItem(name: "filter", value: "done = false"),
+    URLQueryItem(name: "sort_by", value: "due_date"),
+    URLQueryItem(name: "order_by", value: "asc"),
+  ]
+
+  /// Open tasks across every project the token can see, soonest due first.
+  func fetchOpenTasks() async throws -> VikunjaTaskListing {
+    try await fetchTaskListing(path: "tasks", queryItems: Self.openTaskQuery, maxPages: Self.maxTaskPages)
   }
 
-  /// Open tasks in one project.
-  func fetchOpenTasks(projectID: Int) async throws -> [VikunjaTask] {
-    let payloads = try await fetchPaged(
-      path: "projects/\(projectID)/tasks",
-      queryItems: [
-        URLQueryItem(name: "filter", value: "done = false"),
-        URLQueryItem(name: "sort_by", value: "due_date"),
-        URLQueryItem(name: "order_by", value: "asc"),
-      ]
-    )
-    return payloads.compactMap(Self.parseTask)
+  /// Open tasks in one project, soonest due first.
+  func fetchOpenTasks(projectID: Int) async throws -> VikunjaTaskListing {
+    try await fetchTaskListing(
+      path: "projects/\(projectID)/tasks", queryItems: Self.openTaskQuery, maxPages: Self.maxTaskPages)
   }
 
   /// Server-side text search over open tasks (title and description).
-  func searchOpenTasks(query: String) async throws -> [VikunjaTask] {
+  func searchOpenTasks(query: String) async throws -> VikunjaTaskListing {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return try await fetchOpenTasks() }
-    let payloads = try await fetchPaged(
+    return try await fetchTaskListing(
       path: "tasks",
-      queryItems: [
-        URLQueryItem(name: "s", value: trimmed),
-        URLQueryItem(name: "filter", value: "done = false"),
-        URLQueryItem(name: "sort_by", value: "due_date"),
-        URLQueryItem(name: "order_by", value: "asc"),
-      ],
-      maxPages: 2
+      queryItems: [URLQueryItem(name: "s", value: trimmed)] + Self.openTaskQuery,
+      maxPages: Self.maxSearchPages
     )
-    return payloads.compactMap(Self.parseTask)
+  }
+
+  private func fetchTaskListing(
+    path: String, queryItems: [URLQueryItem], maxPages: Int
+  ) async throws -> VikunjaTaskListing {
+    let (payloads, isTruncated) = try await fetchPaged(
+      path: path, queryItems: queryItems, maxPages: maxPages)
+    return VikunjaTaskListing(tasks: payloads.compactMap(Self.parseTask), isTruncated: isTruncated)
   }
 
   func fetchTask(id: Int) async throws -> [String: Any] {
@@ -241,11 +258,13 @@ struct VikunjaAPIClient: Sendable {
 
   // MARK: Requests
 
+  /// Follows Vikunja's pagination headers. `isTruncated` is true when pages remain after
+  /// `maxPages`.
   private func fetchPaged(
     path: String,
     queryItems: [URLQueryItem],
-    maxPages: Int = VikunjaAPIClient.maxPages
-  ) async throws -> [[String: Any]] {
+    maxPages: Int
+  ) async throws -> (items: [[String: Any]], isTruncated: Bool) {
     var collected: [[String: Any]] = []
     for page in 1...max(1, maxPages) {
       let items = queryItems + [
@@ -261,10 +280,10 @@ struct VikunjaAPIClient: Sendable {
       let totalPages =
         response.value(forHTTPHeaderField: "x-pagination-total-pages").flatMap(Int.init) ?? 1
       if array.count < Self.perPage || page >= totalPages {
-        break
+        return (collected, false)
       }
     }
-    return collected
+    return (collected, true)
   }
 
   private func requestObject(
